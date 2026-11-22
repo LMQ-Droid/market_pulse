@@ -1,0 +1,33 @@
+# ---- 数据（不入库）----
+data/raw/
+data/*.duckdb
+data/*.duckdb.wal
+
+# 但部署用的精简 Parquet 必须入库——云端就靠它渲染看板
+!data/deploy/
+!data/deploy/*.parquet
+
+# ---- 日志 ----
+logs/
+*.log
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# ---- IDE / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- 本地产物 ----
+.edge_profile/
+.selenium_cache/
+figures/
+*.png
+!docs/*.png

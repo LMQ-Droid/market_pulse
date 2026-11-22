@@ -1,0 +1,10 @@
+# Streamlit Community Cloud 部署用依赖
+# 只装看板运行必需的包——ETL 用的 requests/sklearn 云端不需要，
+# 少装能显著缩短云端构建时间。
+pandas>=2.0,<3.0
+numpy>=1.24,<3.0
+duckdb>=1.0,<2.0
+pyarrow>=11.0
+streamlit>=1.30,<2.0
+plotly>=5.15
+scikit-learn>=1.3
