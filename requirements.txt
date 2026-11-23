@@ -1,6 +1,6 @@
-# market_pulse dependencies
-# 版本约束策略：给下限不给精确 pin，避免换机器装不上；
-# 给上限避开已知的不兼容大版本。
+# market_pulse - full dependencies (local ETL + dashboard)
+# NOTE: this file must stay pure ASCII.
+# Non-ASCII comments break pip parsing on Linux (Streamlit Cloud).
 pandas>=2.0,<3.0
 numpy>=1.24,<3.0
 duckdb>=1.0,<2.0

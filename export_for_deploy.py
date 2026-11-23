@@ -52,6 +52,7 @@ EXPORTS: dict[str, str] = {
             SELECT code, MIN(industry_name) AS industry_name
             FROM dim_stock_industry GROUP BY code
         ) si ON si.code = s.code
+        WHERE s.trade_date = (SELECT MAX(trade_date) FROM stg_snapshot)
     """,
 }
 
