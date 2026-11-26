@@ -89,6 +89,57 @@ Unregister-ScheduledTask -TaskName "market_pulse_daily" -Confirm:$false
 
 ---
 
+## 怎么查看日志（避免看到乱码）
+
+日志文件是 **UTF-8** 编码，但 PowerShell 默认按系统 GBK 读取，
+直接 `Get-Content logs\daily_update.log -Tail 20` 会显示乱码。
+
+**正确的查看方式**：
+
+```powershell
+Get-Content C:\Users\28456\Desktop\deepseek\market_pulse\logs\daily_update.log -Tail 20 -Encoding UTF8
+```
+
+关键是末尾那个 `-Encoding UTF8`。
+
+> 提示：日志文件内容本身是正确的 UTF-8，乱码只是控制台显示问题，不是数据损坏。
+> 如果你想彻底避免，可以在 PowerShell 启动时执行 `chcp 65001` 切到 UTF-8 代码页。
+
+---
+
+## 失败会自动提醒
+
+这个项目曾因为定时任务从未注册，**连续三天数据没更新却毫无提示**——
+只有你自己打开网页才发觉。所以脚本加了失败提醒。
+
+失败时会在**桌面生成一个文件**：`market_pulse_更新失败.txt`
+
+内容形如：
+
+```
+时间: 2026-11-26 14:15:48
+原因: 推送 GitHub 失败（检查 SSH）
+最新交易日: 2026-11-25
+
+排查步骤:
+1. 打开 C:\Users\28456\Desktop\deepseek\market_pulse
+2. 运行 .venv\Scripts\python.exe daily_update.py
+3. 看 logs\daily_update.log 末尾
+4. 检查 ssh -T git@github.com 是否通过
+
+修好并成功运行一次后，本文件会自动删除。
+```
+
+同时会尝试弹一个 Windows 消息框（`msg` 命令，非阻塞）。
+
+**看到这个文件就说明有问题**，按里面步骤排查即可。
+成功运行一次后文件会自动消失，不需要手动删。
+
+设计上刻意没有引入邮件/微信通知——那需要额外配置 token，
+配置失效时提醒本身也会失效，反而不如桌面文件可靠。
+
+---
+
 ## 推送为什么会失败
 
 定时任务**无人值守**，所以推送必须免密码。你的项目用的是 SSH 方式（`git@github.com:...`），已经配好 key，正常情况下不需要输密码。
@@ -106,6 +157,20 @@ ssh -T git@github.com     # 测试，应返回 "Hi LMQ-Droid!"
 ```
 
 不通就重做一次 key 配置（见 `DEPLOY.md`）。
+
+另需注意：**remote 地址必须是 SSH 形式**。用 HTTPS 在高延迟网络下经常
+`Connection was reset`，而定时任务无人值守不会重试登录。
+
+检查命令：
+
+```powershell
+git remote -v
+# 正确: git@github.com:LMQ-Droid/market_pulse.git
+# 错误: https://github.com/LMQ-Droid/market_pulse.git
+
+# 改过来:
+git remote set-url origin git@github.com:LMQ-Droid/market_pulse.git
+```
 
 ---
 

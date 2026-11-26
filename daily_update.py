@@ -38,12 +38,23 @@ RUN_LOG = LOG_DIR / "daily_update.jsonl"
 
 LOG_DIR.mkdir(exist_ok=True)
 
+# 强制 stdout/stderr 用 UTF-8。
+# 定时任务运行时没有控制台，Windows 会把输出重定向到一个 GBK 编码的
+# 管道；中文日志在这里会乱码甚至抛 UnicodeEncodeError 中断脚本。
+# reconfigure 是 3.7+ 的能力，失败时静默跳过（不影响功能）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-7s | %(message)s",
     datefmt="%H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stdout),
+        # 文件始终用 UTF-8，配合 AUTO_UPDATE.md 里的查看方式
         logging.FileHandler(LOG_DIR / "daily_update.log", encoding="utf-8"),
     ],
 )
@@ -231,6 +242,67 @@ def write_run_log(success: bool, latest: str, detail: str = "") -> None:
 # ---------------------------------------------------------------- 主流程
 
 
+def notify_failure(reason: str, latest: str = "") -> None:
+    """失败时留下醒目痕迹。
+
+    背景：这个项目曾因为定时任务从未注册，连续三天数据没更新，
+    但没有任何提示——只有等你自己打开网页才发现。
+
+    所以失败必须留下三种痕迹，任一种被看到就能发现问题：
+    1. 桌面上的 FAILED 文件（最容易被看见）
+    2. Windows 弹窗（如果有人在电脑前）
+    3. JSONL 日志（程序化查询用）
+
+    这里克制地只做前两项，不引入邮件/微信等外部依赖——
+    那需要配置 token，反而降低了可靠性。
+    """
+    # 1. 桌面标记文件
+    try:
+        desktop = Path.home() / "Desktop"
+        if not desktop.exists():
+            desktop = Path.home() / "OneDrive" / "Desktop"
+        if desktop.exists():
+            marker = desktop / "market_pulse_更新失败.txt"
+            marker.write_text(
+                f"时间: {datetime.now():%Y-%m-%d %H:%M:%S}\n"
+                f"原因: {reason}\n"
+                f"最新交易日: {latest or '未知'}\n\n"
+                f"排查步骤:\n"
+                f"1. 打开 C:\\Users\\28456\\Desktop\\deepseek\\market_pulse\n"
+                f"2. 运行 .venv\\Scripts\\python.exe daily_update.py\n"
+                f"3. 看 logs\\daily_update.log 末尾\n"
+                f"4. 检查 ssh -T git@github.com 是否通过\n\n"
+                f"修好并成功运行一次后，本文件会自动删除。\n",
+                encoding="utf-8",
+            )
+            logger.info("已生成桌面提醒: %s", marker)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("写桌面标记失败: %s", exc)
+
+    # 2. Windows 弹窗（非阻塞，失败不影响主流程）
+    try:
+        msg = f"market_pulse 更新失败: {reason}".replace('"', "'")
+        subprocess.run(
+            ["msg", "*", "/TIME:60", msg],
+            capture_output=True, timeout=10,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def clear_failure_marker() -> None:
+    """成功时清掉桌面上的失败标记，避免混淆。"""
+    for base in (Path.home() / "Desktop",
+                 Path.home() / "OneDrive" / "Desktop"):
+        try:
+            marker = base / "market_pulse_更新失败.txt"
+            if marker.exists():
+                marker.unlink()
+                logger.info("已清除之前的失败标记")
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def main() -> int:
     started = time.time()
     logger.info("=" * 60)
@@ -254,14 +326,17 @@ def main() -> int:
         if not ok:
             write_run_log(False, "", "pipeline failed")
             logger.error("采集失败，保留旧数据，不推送")
+            notify_failure("采集失败（数据源异常）", latest)
             return 2
 
         if not run_export():
             write_run_log(False, latest, "export failed")
+            notify_failure("导出部署包失败", latest)
             return 3
 
         if not commit_and_push(latest):
             write_run_log(False, latest, "push failed")
+            notify_failure("推送 GitHub 失败（检查 SSH）", latest)
             return 4
 
         elapsed = time.time() - started
@@ -270,6 +345,7 @@ def main() -> int:
         logger.info("看板：https://market-pulse-lmq.streamlit.app")
         logger.info("=" * 60)
 
+        clear_failure_marker()
         write_run_log(True, latest, f"{elapsed:.0f}s")
         return 0
 
