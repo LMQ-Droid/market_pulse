@@ -71,12 +71,28 @@ with st.sidebar:
         st.error("mart_industry_daily 为空，请先运行 --task build")
         st.stop()
 
+    # 有问题的日期集合，用于在选项里打标记
+    bad_dates: set = set()
+    if table_exists("mart_data_quality"):
+        try:
+            bad = q(
+                "SELECT trade_date FROM mart_data_quality WHERE quality = 'intraday'"
+            )
+            bad_dates = {str(d)[:10] for d in bad["trade_date"].tolist()}
+        except Exception:
+            pass
+
+    def _fmt_date(d) -> str:
+        """日期格式：盘中数据加 ⚠️ 标记，一眼能看出哪天不可信。"""
+        s = str(d)[:10]
+        return f"{s} ⚠️" if s in bad_dates else s
+
     as_of = st.selectbox(
         "观察日（as of）",
         options=date_list,
         index=0,
-        format_func=lambda d: str(d),
-        help="所有图表只用该日及之前的数据，避免未来函数",
+        format_func=_fmt_date,
+        help="所有图表只用该日及之前的数据，避免未来函数。⚠️ 表示该日数据为盘中采集",
     )
 
     st.divider()
@@ -95,6 +111,34 @@ st.title("A股行业轮动看板")
 st.caption(
     f"观察日 {as_of} · 等权行业收益 · 数据源：新浪快照 + 腾讯K线"
 )
+
+# 数据质量提示：如果这一天是盘中采集的，必须显眼地告诉读者。
+# 这些数字（涨跌幅/市场宽度/估值）在盘中采集时是失真的，
+# 不加提示会让人误以为数据可信。
+if table_exists("mart_data_quality"):
+    try:
+        dq = q(
+            """
+            SELECT trade_date, quality, mean_dev_pct, n_compared
+            FROM mart_data_quality
+            WHERE trade_date = ?
+            """,
+            params=(as_of,),
+        )
+        if not dq.empty and dq.iloc[0]["quality"] == "intraday":
+            row = dq.iloc[0]
+            stamp = str(row["trade_date"])[:10]
+            st.warning(
+                f"⚠️ **{stamp} 的数据为盘中采集，非收盘价**"
+                f"（与收盘价平均偏差 {row['mean_dev_pct']:.2f}%，"
+                f"{int(row['n_compared'])} 只样本比对）。\n\n"
+                f"该日的涨跌幅、市场宽度、估值中位数可能失真，"
+                f"仅作参考。**收盘后（15:00 之后）重新运行 "
+                f"`daily_update.py` 可修正。**"
+            )
+    except Exception:
+        # 质量表读不到不影响主流程，静默跳过
+        pass
 
 head = q(
     """

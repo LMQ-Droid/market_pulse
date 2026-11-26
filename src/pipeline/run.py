@@ -26,6 +26,7 @@ from src.extract.http_client import HttpClient
 from src.features import factors as feat
 from src.load import warehouse as wh
 from src.quality import checks
+from src.quality import snapshot_quality
 from src.transform import clean
 
 logger = logging.getLogger("pipeline")
@@ -309,9 +310,15 @@ def task_build() -> dict:
 
             feat.build_mart(conn, stock_factors, industry_factors)
 
+            # 评估每日快照质量（收盘价 vs 盘中价）。
+            # 这一步必须在 build_mart 之后——它要 join stg_snapshot 与
+            # stg_kline，而且要用到刚建好的 mart 表做交叉验证。
+            quality_days = snapshot_quality.build_quality_table(conn)
+
             run.note(
                 stock_factor_rows=len(stock_factors),
                 industry_factor_rows=len(industry_factors),
+                quality_days=quality_days,
             )
             record = run.finish(
                 "success", len(kline), len(stock_factors)

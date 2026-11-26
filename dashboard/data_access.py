@@ -128,6 +128,7 @@ _PARQUET_VIEWS = {
     "mart_industry_daily": "industry_daily.parquet",
     "mart_stock_daily": "stock_daily.parquet",
     "mart_market_breadth": "breadth.parquet",
+    "mart_data_quality": "quality.parquet",
     "stg_snapshot": "snapshot.parquet",
     "dim_industry": "industry_dim.parquet",
     "dim_stock_industry": "stock_industry.parquet",

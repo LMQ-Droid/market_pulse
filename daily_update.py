@@ -145,10 +145,34 @@ def run_pipeline() -> tuple[bool, str]:
     try:
         import duckdb
 
+        sys.path.insert(0, str(ROOT))
+        from src.quality import snapshot_quality
+
         conn = duckdb.connect(str(ROOT / "data" / "market.duckdb"), read_only=True)
         row = conn.execute("SELECT MAX(date) FROM mart_industry_daily").fetchone()
-        conn.close()
         latest = str(row[0])[:10] if row and row[0] else ""
+
+        # 收盘校验：判断本次抓到的是收盘价还是盘中中间价。
+        # 复用 src/quality/snapshot_quality.py 的判定逻辑，避免两处实现漂移。
+        info = snapshot_quality.check_latest(conn)
+        if info:
+            label = snapshot_quality.QUALITY_LABELS.get(info["quality"], info["quality"])
+            if info["quality"] == "intraday":
+                logger.warning(
+                    "⚠️ %s 的数据为**盘中价**（平均偏差 %.2f%%，%d 只样本）——"
+                    "涨跌幅、市场宽度、估值可能失真，建议收盘后重跑",
+                    info["trade_date"], info["mean_dev_pct"], info["n_compared"],
+                )
+            elif info["quality"] == "close":
+                logger.info(
+                    "收盘校验通过：%s 为收盘数据（平均偏差 %.3f%%）",
+                    info["trade_date"], info["mean_dev_pct"],
+                )
+            else:
+                logger.info("%s 数据质量：%s（可比样本不足）",
+                            info["trade_date"], label)
+
+        conn.close()
     except Exception as exc:  # noqa: BLE001
         logger.warning("读取最新交易日失败: %s", exc)
         latest = ""

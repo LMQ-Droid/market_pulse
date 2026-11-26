@@ -37,6 +37,10 @@ EXPORTS: dict[str, str] = {
                avg_change, total_amount_yi, median_per, median_pb
         FROM mart_market_breadth
     """,
+    "quality.parquet": """
+        SELECT trade_date, n_compared, mean_dev_pct, pct_over_1, quality
+        FROM mart_data_quality
+    """,
     "industry_dim.parquet": """
         SELECT node, industry_name, industry_code FROM dim_industry
     """,
