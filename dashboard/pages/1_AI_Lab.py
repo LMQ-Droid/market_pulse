@@ -45,6 +45,16 @@ if factors.empty or "future_return" not in factors.columns:
     st.error("无因子数据。请先运行 `python -m src.pipeline.run --task build`")
     st.stop()
 
+# 未跑实验时给出明确指引——否则页面看起来是空的，
+# 第一次来的人不知道要往下滚才找得到按钮。
+if "report" not in st.session_state:
+    st.info(
+        "👇 **往下滚动，点击「运行实验」按钮**，约 5–20 秒后会出现 "
+        "**IC（信息系数）** 等指标。\n\n"
+        "IC 用来衡量因子预测能力的强弱：0 表示跟瞎猜差不多，"
+        "1 表示完全预测准确。"
+    )
+
 # ---------------------------------------------------------------- 方法说明
 
 with st.expander("📐 实验设计（面试会问，先讲清楚）", expanded=True):
