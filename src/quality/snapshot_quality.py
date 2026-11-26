@@ -55,8 +55,16 @@ FIX_HINT = "收盘后（15:00 之后）重新运行 daily_update.py 可修正"
 def assess(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """评估所有交易日的快照质量。
 
+    注意统计口径：JOIN 只能覆盖「有 K 线」的那部分股票（约 800 只，
+    因为 K 线只抓 800 只），而快照有 5000+ 只。所以除了偏差率，
+    还要给出**覆盖率**，让人知道这个判定只基于多少比例的数据。
+
+    如果某天覆盖率太低（比如只有 5%），即使偏差为 0 也不能
+    断言整天的数据是收盘价——这一点必须让读者看到。
+
     Returns:
-        DataFrame[trade_date, n_compared, mean_dev_pct, pct_over_1, quality]
+        DataFrame[trade_date, n_snapshot, n_compared, coverage_pct,
+                  mean_dev_pct, pct_over_1, quality]
     """
     try:
         df = conn.execute(
@@ -83,7 +91,21 @@ def assess(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     if df.empty:
         return df
 
+    # 计算覆盖率：可比对样本占当天快照总数的比例。
+    # 这个数字很重要——800/5579 ≈ 14%，说明判定只基于少数样本。
+    try:
+        totals = conn.execute(
+            "SELECT trade_date, COUNT(*) AS n_snapshot FROM stg_snapshot "
+            "GROUP BY trade_date"
+        ).df()
+        df = df.merge(totals, on="trade_date", how="left")
+        df["coverage_pct"] = (df["n_compared"] / df["n_snapshot"] * 100).round(1)
+    except Exception:  # noqa: BLE001
+        df["n_snapshot"] = df["n_compared"]
+        df["coverage_pct"] = 100.0
+
     def classify(row: pd.Series) -> str:
+        # 样本太少时不敢下结论
         if row["n_compared"] < MIN_SAMPLES:
             return "unknown"
         return "intraday" if row["mean_dev_pct"] > INTRADAY_THRESHOLD_PCT else "close"
@@ -106,7 +128,8 @@ def build_quality_table(conn: duckdb.DuckDBPyConnection) -> int:
         conn.execute(
             """
             CREATE OR REPLACE TABLE mart_data_quality AS
-            SELECT NULL::DATE AS trade_date, 0::BIGINT AS n_compared,
+            SELECT NULL::DATE AS trade_date, 0::BIGINT AS n_snapshot,
+                   0::BIGINT AS n_compared, 0.0::DOUBLE AS coverage_pct,
                    0.0::DOUBLE AS mean_dev_pct, 0.0::DOUBLE AS pct_over_1,
                    ''::VARCHAR AS quality WHERE 1=0
             """
@@ -118,7 +141,8 @@ def build_quality_table(conn: duckdb.DuckDBPyConnection) -> int:
         conn.execute(
             """
             CREATE OR REPLACE TABLE mart_data_quality AS
-            SELECT trade_date, n_compared, mean_dev_pct, pct_over_1, quality
+            SELECT trade_date, n_snapshot, n_compared, coverage_pct,
+                   mean_dev_pct, pct_over_1, quality
             FROM _quality_incoming
             """
         )
